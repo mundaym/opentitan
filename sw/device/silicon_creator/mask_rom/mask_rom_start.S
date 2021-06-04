@@ -223,12 +223,21 @@ _mask_rom_start_boot:
 
   .extern crt_section_clear
   .extern crt_section_copy
+  .extern epmp_init
+  .extern epmp_setup_stack_guard
+
+  // Must be called prior to any Main RAM access.
+  call epmp_init
 
   // TODO: Setup SRAM Scrambling
   // Temporarily: Zero out ram_main
   li   a0, TOP_EARLGREY_RAM_MAIN_BASE_ADDR
   li   a1, (TOP_EARLGREY_RAM_MAIN_BASE_ADDR + TOP_EARLGREY_RAM_MAIN_SIZE_BYTES)
   call crt_section_clear
+
+  // Must be called after RAM zeroing to avoid triggering stack overflow fault
+  // as it will write into the `_stack_start` address.
+  call epmp_setup_stack_guard
 
   /**
    * Setup C Runtime

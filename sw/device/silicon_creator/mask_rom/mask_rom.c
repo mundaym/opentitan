@@ -17,6 +17,7 @@
 #include "sw/device/silicon_creator/lib/drivers/keymgr.h"
 #include "sw/device/silicon_creator/lib/drivers/uart.h"
 #include "sw/device/silicon_creator/lib/sigverify.h"
+#include "sw/device/silicon_creator/mask_rom/mask_rom_epmp.h"
 #include "sw/device/silicon_creator/mask_rom/romextimage.h"
 #include "sw/device/silicon_creator/mask_rom/sigverify_keys.h"
 
@@ -26,6 +27,10 @@ void mask_rom_exception_handler(void) { wait_for_interrupt(); }
 void mask_rom_nmi_handler(void) { wait_for_interrupt(); }
 
 void mask_rom_boot(void) {
+  // Initiaize shadow copy of the ePMP register configuration.
+  epmp_state_t epmp;
+  mask_rom_epmp_state_init(&epmp);
+
   // Initialize pinmux configuration so we can use the UART.
   pinmux_init();
 
@@ -44,10 +49,6 @@ void mask_rom_boot(void) {
   // Clean Device State Part 2.
   // See "Cleaning Device State" Below.
   // clean_device_state_part_2(boot_reason); // Chip-Specific Startup Module
-
-  // Enable Memory Protection
-  // - PMP Initial Region (if not done in power on)
-  // enable_memory_protection();  // Lockdown Module
 
   // Chip-specific startup functionality (NOTE: we expect this portion of
   // initialization to be done in assembly before C runtime init.  Delete
@@ -162,6 +163,20 @@ void mask_rom_boot(void) {
     // if (!final_jump_to_rom_ext(current_rom_ext_manifest)) { // Hardened Jump
     // Module
     if (true) {
+      if (!epmp_state_check(&epmp)) {
+        break;
+      }
+      // Unlock execution of ROM_EXT TEXT sections.
+      // TODO: unlock only TEXT sections rather than entire signed image.
+      epmp_region_t rom_ext_text_region = (epmp_region_t){
+          .start = (uintptr_t)signed_region.start,
+          .end = (uintptr_t)signed_region.start + signed_region.length,
+      };
+      mask_rom_epmp_unlock_rom_ext_rx(&epmp, rom_ext_text_region);
+      if (!epmp_state_check(&epmp)) {
+        break;
+      }
+
       // Jump to ROM_EXT entry point.
       romextimage_entry_point *entry_point =
           (romextimage_entry_point *)manifest_entry_point_address_get(manifest);
